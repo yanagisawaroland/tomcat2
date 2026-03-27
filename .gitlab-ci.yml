@@ -1,0 +1,94 @@
+# ================================================================
+# tomcat2 CI/CD 流水线
+# K8s Runner Pod → SSH → node75 编译构建
+# ================================================================
+
+variables:
+  HARBOR_REGISTRY: "harbor.devops.local:7581"
+  HARBOR_PROJECT:  "devops"
+  APP_NAME:        "tomcat2"
+  NODE75_IP:       "10.20.50.75"
+  SRC_PATH:        "/www/devops/tomcat2"
+
+stages:
+  - build
+  - deploy
+
+# ================================================================
+# Job 1：SSH 到 node75 编译并构建镜像
+# ================================================================
+build:image:
+  stage: build
+  image: harbor.devops.local:7581/devops/gitlab-runner:alpine-v16.9.2
+  tags:
+    - k8s
+  script:
+    # ---- 配置 SSH 私钥 ----
+    - mkdir -p ~/.ssh
+    - echo "${SSH_PRIVATE_KEY}" > ~/.ssh/id_rsa
+    - chmod 600 ~/.ssh/id_rsa
+    - ssh-keyscan -H ${NODE75_IP} >> ~/.ssh/known_hosts
+
+    # ---- 同步源码到 node75 ----
+    - apk add --no-cache rsync openssh-client
+    - rsync -av --delete
+        ${CI_PROJECT_DIR}/
+        root@${NODE75_IP}:${SRC_PATH}/
+
+    # ---- SSH 到 node75 执行编译和构建 ----
+    - ssh root@${NODE75_IP} "
+        set -e
+
+        # Maven 编译 War
+        docker run --rm
+          -v ${SRC_PATH}:/app
+          -v /opt/maven-repo:/root/.m2
+          -w /app
+          ${HARBOR_REGISTRY}/devops/maven:3.9-jdk11
+          mvn clean package -DskipTests -s settings.xml
+
+        # 确认 War 包生成
+        ls -lh ${SRC_PATH}/target/tomcat2.war
+
+        # docker build 打包镜像
+        docker build
+          -t ${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${APP_NAME}:${CI_COMMIT_SHORT_SHA}
+          -t ${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${APP_NAME}:latest
+          ${SRC_PATH}/
+
+        # 推送 Harbor
+        docker push ${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${APP_NAME}:${CI_COMMIT_SHORT_SHA}
+        docker push ${HARBOR_REGISTRY}/${HARBOR_PROJECT}/${APP_NAME}:latest
+
+        echo 'Build and push done: ${CI_COMMIT_SHORT_SHA}'
+      "
+  only:
+    - main
+
+# ================================================================
+# Job 2：更新 gitops 触发金丝雀发布（手动）
+# ================================================================
+deploy:update-gitops:
+  stage: deploy
+  image: harbor.devops.local:7581/devops/gitlab-runner:alpine-v16.9.2
+  tags:
+    - k8s
+  environment:
+    name: production
+    url: http://tomcat2.devops.local:32490
+  script:
+    - apk add --no-cache git
+    - git config --global user.email "ci@devops.local"
+    - git config --global user.name "GitLab CI"
+    - git clone http://root:${GITLAB_TOKEN}@10.20.50.75:7591/devops/gitops.git
+    - cd gitops
+    - sed -i "s|${APP_NAME}:.*|${APP_NAME}:${CI_COMMIT_SHORT_SHA}|g"
+        apps/tomcat2/base/rollout.yaml
+    - git add -A
+    - git diff --staged --quiet || git commit -m "release ${APP_NAME} to ${CI_COMMIT_SHORT_SHA}"
+    - git push origin HEAD:main
+  only:
+    - main
+  when: manual
+  needs:
+    - build:image
