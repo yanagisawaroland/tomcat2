@@ -16,7 +16,7 @@ build:image:
     - k8s
   script:
     - mkdir -p ~/.ssh
-    - echo "${SSH_PRIVATE_KEY}" > ~/.ssh/id_rsa
+    - cp ${SSH_PRIVATE_KEY} ~/.ssh/id_rsa
     - chmod 600 ~/.ssh/id_rsa
     - apk add --no-cache rsync openssh-client
     - ssh-keyscan -H ${NODE75_IP} >> ~/.ssh/known_hosts
