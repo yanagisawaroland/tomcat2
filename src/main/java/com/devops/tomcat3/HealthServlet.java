@@ -1,4 +1,4 @@
-package com.devops.tomcat2;
+package com.devops.tomcat3;
 
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
@@ -15,6 +15,6 @@ public class HealthServlet extends HttpServlet {
         resp.setStatus(200);
         PrintWriter out = resp.getWriter();
         String version = System.getenv("APP_VERSION") != null ? System.getenv("APP_VERSION") : "1.0.0";
-        out.print("{\"status\":\"ok\",\"app\":\"tomcat2\",\"version\":\"" + version + "\"}");
+        out.print("{\"status\":\"ok\",\"app\":\"tomcat3\",\"version\":\"" + version + "\"}");
     }
 }

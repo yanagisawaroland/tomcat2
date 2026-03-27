@@ -1,4 +1,4 @@
-package com.devops.tomcat2;
+package com.devops.tomcat3;
 
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
